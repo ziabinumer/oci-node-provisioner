@@ -1,29 +1,75 @@
-name: OCI Provisioner Test
+import oci
+import os
 
-on:
-  workflow_dispatch:
+config = {
+    "user": os.getenv("OCI_USER_ID"),
+    "key_content": os.getenv("OCI_PRIVATE_KEY"),
+    "fingerprint": os.getenv("OCI_FINGERPRINT"),
+    "tenancy": os.getenv("OCI_TENANCY_ID"),
+    "region": os.getenv("OCI_REGION")
+}
 
-jobs:
-  attempt-build:
-    runs-on: ubuntu-latest
+tenancy_id = os.getenv("OCI_TENANCY_ID")
+subnet_id = os.getenv("OCI_SUBNET_ID")
+image_id = os.getenv("OCI_IMAGE_ID")
 
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+print(f"Region: {config['region']}")
+print("Testing OCI access...")
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+try:
+    identity = oci.identity.IdentityClient(config)
+    compute = oci.core.ComputeClient(config)
+    network = oci.core.VirtualNetworkClient(config)
 
-      - name: Install SDK Requirements
-        run: pip install -r requirements.txt
+    # Test authentication
+    tenancy = identity.get_tenancy(tenancy_id).data
+    print(f"Authentication: OK")
+    print(f"Tenancy: {tenancy.name}")
 
-      - name: Test OCI Authentication
-        env:
-          OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
-          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
-          OCI_TENANCY_ID: ${{ secrets.OCI_TENANCY_ID }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-        run: python test_oci.py
+    # Get availability domains
+    ads = identity.list_availability_domains(
+        tenancy_id
+    ).data
+
+    print("\nAvailability Domains:")
+    for ad in ads:
+        print(f"  - {ad.name}")
+
+    # Check subnet
+    subnet = network.get_subnet(subnet_id).data
+
+    print("\nSubnet:")
+    print(f"  Name: {subnet.display_name}")
+    print(f"  State: {subnet.lifecycle_state}")
+    print(f"  CIDR: {subnet.cidr_block}")
+
+    # Check image
+    image = compute.get_image(image_id).data
+
+    print("\nImage:")
+    print(f"  Name: {image.display_name}")
+    print(f"  State: {image.lifecycle_state}")
+    print(f"  OS: {image.operating_system}")
+    print(f"  Version: {image.operating_system_version}")
+    print(f"  Architecture: {image.shape}")
+
+    print("\n======================================")
+    print("ALL OCI RESOURCE CHECKS PASSED")
+    print("======================================")
+
+except oci.exceptions.ServiceError as e:
+    print("\n======================================")
+    print("OCI API ERROR")
+    print("======================================")
+    print(f"Status: {e.status}")
+    print(f"Code: {e.code}")
+    print(f"Message: {e.message}")
+    exit(1)
+
+except Exception as e:
+    print("\n======================================")
+    print("ERROR")
+    print("======================================")
+    print(type(e).__name__)
+    print(e)
+    exit(1)
