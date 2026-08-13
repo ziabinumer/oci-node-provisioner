@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================================
-# OCI CONFIGURATION
+# CONFIGURATION
 # ============================================================
 
 config = {
@@ -17,7 +17,6 @@ config = {
     "region": os.getenv("OCI_REGION")
 }
 
-# Validate required configuration
 required_vars = [
     "OCI_USER_ID",
     "OCI_PRIVATE_KEY",
@@ -29,7 +28,7 @@ required_vars = [
     "OCI_PUBLIC_SSH_KEY"
 ]
 
-missing = [var for var in required_vars if not os.getenv(var)]
+missing = [v for v in required_vars if not os.getenv(v)]
 
 if missing:
     print("CRITICAL ERROR: Missing environment variables:")
@@ -39,71 +38,62 @@ if missing:
 
 
 # ============================================================
+# INSTANCE SETTINGS
+# ============================================================
+
+COMPARTMENT_ID = os.getenv("OCI_TENANCY_ID")
+SUBNET_ID = os.getenv("OCI_SUBNET_ID")
+IMAGE_ID = os.getenv("OCI_IMAGE_ID")
+PUBLIC_SSH_KEY = os.getenv("OCI_PUBLIC_SSH_KEY").strip()
+
+INSTANCE_NAME = "FX-Backend-Server"
+
+SHAPE = "VM.Standard.A1.Flex"
+OCPUS = 1
+MEMORY_GB = 6
+BOOT_VOLUME_GB = 100
+
+TOTAL_ATTEMPTS = 60
+RETRY_DELAY = 60
+
+
+# ============================================================
 # OCI CLIENTS
 # ============================================================
 
 try:
     compute_client = oci.core.ComputeClient(config)
     identity_client = oci.identity.IdentityClient(config)
+    network_client = oci.core.VirtualNetworkClient(config)
 
-    print("OCI Authentication Successful.")
+    print("OCI authentication successful.")
     print(f"Region: {config['region']}")
 
 except Exception as e:
-    print(f"Authentication Failed: {e}")
+    print(f"OCI initialization failed: {e}")
     exit(1)
 
 
 # ============================================================
-# INSTANCE CONFIGURATION
+# SSH KEY CHECK
 # ============================================================
 
-compartment_id = os.getenv("OCI_TENANCY_ID")
-subnet_id = os.getenv("OCI_SUBNET_ID")
-image_id = os.getenv("OCI_IMAGE_ID")
-public_ssh_key = os.getenv("OCI_PUBLIC_SSH_KEY").strip()
-
-INSTANCE_NAME = "FX-Backend-Server"
-
-# Ampere A1 configuration
-OCPUS = 1
-MEMORY_GB = 6
-BOOT_VOLUME_GB = 100
-
-# Number of attempts
-TOTAL_ATTEMPTS = 60
-
-# Seconds between capacity attempts
-RETRY_DELAY = 60
-
-
-# ============================================================
-# SSH KEY VALIDATION
-# ============================================================
-
-if not public_ssh_key:
+if not PUBLIC_SSH_KEY:
     print("CRITICAL ERROR: OCI_PUBLIC_SSH_KEY is empty.")
     exit(1)
-
-if not (
-    public_ssh_key.startswith("ssh-ed25519 ")
-    or public_ssh_key.startswith("ssh-rsa ")
-    or public_ssh_key.startswith("ecdsa-")
-):
-    print("WARNING: OCI_PUBLIC_SSH_KEY does not look like a standard SSH public key.")
 
 print("SSH public key loaded successfully.")
 
 
 # ============================================================
-# DISCOVER AVAILABILITY DOMAINS
+# GET AVAILABILITY DOMAINS
 # ============================================================
 
 try:
     print("Discovering availability domains...")
 
     ads_response = identity_client.list_availability_domains(
-        tenancy_id=compartment_id
+        tenancy_id=COMPARTMENT_ID
     )
 
     ads = [ad.name for ad in ads_response.data]
@@ -112,10 +102,63 @@ try:
         print("CRITICAL ERROR: No availability domains found.")
         exit(1)
 
-    print(f"Available availability domains: {ads}")
+    print("Available availability domains:")
+
+    for ad in ads:
+        print(f"  - {ad}")
 
 except Exception as e:
-    print(f"CRITICAL ERROR: Failed to retrieve availability domains: {e}")
+    print(f"Failed to retrieve availability domains: {e}")
+    exit(1)
+
+
+# ============================================================
+# VERIFY SUBNET
+# ============================================================
+
+try:
+    subnet = network_client.get_subnet(SUBNET_ID).data
+
+    print()
+    print("Subnet:")
+    print(f"  Name: {subnet.display_name}")
+    print(f"  State: {subnet.lifecycle_state}")
+    print(f"  CIDR: {subnet.cidr_block}")
+
+    if subnet.lifecycle_state != "AVAILABLE":
+        print("WARNING: Subnet is not AVAILABLE.")
+
+except oci.exceptions.ServiceError as e:
+    print("CRITICAL ERROR: Cannot access subnet.")
+    print(f"Status: {e.status}")
+    print(f"Code: {e.code}")
+    print(f"Message: {e.message}")
+    exit(1)
+
+
+# ============================================================
+# VERIFY IMAGE
+# ============================================================
+
+try:
+    image = compute_client.get_image(IMAGE_ID).data
+
+    print()
+    print("Image:")
+    print(f"  Name: {image.display_name}")
+    print(f"  State: {image.lifecycle_state}")
+    print(f"  OS: {image.operating_system}")
+    print(f"  Version: {image.operating_system_version}")
+
+    if image.lifecycle_state != "AVAILABLE":
+        print("CRITICAL ERROR: Image is not AVAILABLE.")
+        exit(1)
+
+except oci.exceptions.ServiceError as e:
+    print("CRITICAL ERROR: Cannot access image.")
+    print(f"Status: {e.status}")
+    print(f"Code: {e.code}")
+    print(f"Message: {e.message}")
     exit(1)
 
 
@@ -124,56 +167,68 @@ except Exception as e:
 # ============================================================
 
 try:
-    print(f"Checking whether '{INSTANCE_NAME}' already exists...")
+    print()
+    print(f"Checking for existing instance '{INSTANCE_NAME}'...")
 
-    existing_instances = compute_client.list_instances(
-        compartment_id=compartment_id
+    instances = compute_client.list_instances(
+        compartment_id=COMPARTMENT_ID
     ).data
 
-    for instance in existing_instances:
+    for instance in instances:
+
         if instance.display_name == INSTANCE_NAME:
-            print(
-                f"Instance '{INSTANCE_NAME}' already exists."
-            )
-            print(f"Instance OCID: {instance.id}")
-            print(f"Instance state: {instance.lifecycle_state}")
-            print("No new instance will be created.")
+
+            print()
+            print("=" * 60)
+            print("INSTANCE ALREADY EXISTS")
+            print("=" * 60)
+            print(f"OCID: {instance.id}")
+            print(f"State: {instance.lifecycle_state}")
+            print("=" * 60)
+
             exit(0)
 
-    print("No existing instance found. Proceeding with provisioning.")
+    print("No existing instance found.")
 
-except Exception as e:
-    print(f"WARNING: Could not check for existing instances: {e}")
-    print("Continuing with provisioning attempt...")
+except oci.exceptions.ServiceError as e:
+
+    print("WARNING: Could not check existing instances.")
+    print(f"Status: {e.status}")
+    print(f"Message: {e.message}")
+
+    print("Continuing with provisioning...")
 
 
 # ============================================================
 # PROVISIONING LOOP
 # ============================================================
 
-for i in range(1, TOTAL_ATTEMPTS + 1):
+for attempt in range(1, TOTAL_ATTEMPTS + 1):
 
-    current_ad = ads[(i - 1) % len(ads)]
+    current_ad = ads[(attempt - 1) % len(ads)]
 
     print()
     print("=" * 60)
-    print(f"Attempt {i}/{TOTAL_ATTEMPTS}")
+    print(f"PROVISIONING ATTEMPT {attempt}/{TOTAL_ATTEMPTS}")
+    print("=" * 60)
     print(f"Availability Domain: {current_ad}")
-    print(f"Shape: VM.Standard.A1.Flex")
+    print(f"Shape: {SHAPE}")
     print(f"OCPUs: {OCPUS}")
     print(f"Memory: {MEMORY_GB} GB")
+    print(f"Boot Volume: {BOOT_VOLUME_GB} GB")
     print("=" * 60)
 
     try:
 
-        request = oci.core.models.LaunchInstanceDetails(
+        launch_details = oci.core.models.LaunchInstanceDetails(
+
             display_name=INSTANCE_NAME,
 
-            compartment_id=compartment_id,
+            compartment_id=COMPARTMENT_ID,
 
             availability_domain=current_ad,
 
-            shape="VM.Standard.A1.Flex",
+            shape=SHAPE,
 
             shape_config=oci.core.models.LaunchInstanceShapeConfigDetails(
                 ocpus=OCPUS,
@@ -182,159 +237,207 @@ for i in range(1, TOTAL_ATTEMPTS + 1):
 
             source_details=oci.core.models.InstanceSourceViaImageDetails(
                 source_type="image",
-                image_id=image_id,
+                image_id=IMAGE_ID,
                 boot_volume_size_in_gbs=BOOT_VOLUME_GB
             ),
 
             create_vnic_details=oci.core.models.CreateVnicDetails(
-                subnet_id=subnet_id,
+                subnet_id=SUBNET_ID,
                 assign_public_ip=True,
                 assign_private_dns_record=True,
                 display_name="forexalertsvnic"
             ),
 
             metadata={
-                "ssh_authorized_keys": public_ssh_key
+                "ssh_authorized_keys": PUBLIC_SSH_KEY
             }
         )
 
         print("Sending launch request to OCI...")
 
-        response = compute_client.launch_instance(request)
+        response = compute_client.launch_instance(
+            launch_details
+        )
 
-        if response.status in (200, 201, 202):
+        instance = response.data
 
-            instance = response.data
+        print()
+        print("=" * 60)
+        print("INSTANCE CREATION REQUEST ACCEPTED")
+        print("=" * 60)
+        print(f"Instance OCID: {instance.id}")
+        print(f"State: {instance.lifecycle_state}")
+        print("=" * 60)
 
-            print()
-            print("=" * 60)
-            print("SUCCESS!")
-            print("=" * 60)
-            print(f"Instance OCID: {instance.id}")
-            print(f"Instance name: {instance.display_name}")
-            print(f"Lifecycle state: {instance.lifecycle_state}")
-            print("OCI accepted the instance creation request.")
-            print("=" * 60)
+        # ====================================================
+        # WAIT FOR RUNNING
+        # ====================================================
 
-            # ------------------------------------------------
-            # Wait for the instance to become RUNNING
-            # ------------------------------------------------
+        print()
+        print("Waiting for instance to become RUNNING...")
 
-            print()
-            print("Waiting for instance to become RUNNING...")
+        try:
 
-            try:
-                waiter_response = oci.wait_until(
-                    compute_client,
-                    compute_client.get_instance(instance.id),
-                    evaluate_response=lambda response: response.data.lifecycle_state
+            waiter = oci.wait_until(
+                compute_client,
+
+                compute_client.get_instance(
+                    instance.id
+                ),
+
+                evaluate_response=lambda response:
+                    response.data.lifecycle_state
                     in ["RUNNING", "TERMINATED"],
-                    max_wait_seconds=600,
-                    max_interval_seconds=15
-                )
 
-                final_instance = waiter_response.data
+                max_wait_seconds=600,
+
+                max_interval_seconds=15
+            )
+
+            final_instance = waiter.data
+
+            print(
+                f"Final lifecycle state: "
+                f"{final_instance.lifecycle_state}"
+            )
+
+            if final_instance.lifecycle_state != "RUNNING":
 
                 print(
-                    f"Final lifecycle state: "
-                    f"{final_instance.lifecycle_state}"
+                    "Instance did not reach RUNNING state."
                 )
 
-                if final_instance.lifecycle_state != "RUNNING":
-                    print("Instance did not reach RUNNING state.")
-                    exit(1)
+                exit(1)
 
-            except Exception as e:
-                print(f"WARNING: Could not confirm RUNNING state: {e}")
-                print("The instance may still be starting.")
+        except Exception as e:
 
-            # ------------------------------------------------
-            # Retrieve VNIC / Public IP
-            # ------------------------------------------------
+            print(
+                f"WARNING: Could not confirm RUNNING state: {e}"
+            )
 
-            try:
-                vnic_attachments = compute_client.list_vnic_attachments(
-                    compartment_id=compartment_id,
-                    instance_id=instance.id
-                ).data
+            print(
+                "The instance may still be starting."
+            )
 
-                if vnic_attachments:
 
-                    vnic_id = vnic_attachments[0].vnic_id
+        # ====================================================
+        # GET PUBLIC IP
+        # ====================================================
 
-                    virtual_network_client = oci.core.VirtualNetworkClient(
-                        config
-                    )
+        print()
+        print("Retrieving network information...")
 
-                    vnic = virtual_network_client.get_vnic(
-                        vnic_id
-                    ).data
+        try:
 
-                    print()
-                    print("=" * 60)
-                    print("SERVER INFORMATION")
-                    print("=" * 60)
-                    print(f"Private IP: {vnic.private_ip}")
-                    print(f"Public IP:  {vnic.public_ip}")
-                    print()
-                    print(
-                        f"SSH command:"
-                    )
-                    print(
-                        f"ssh -i ~/.ssh/id_ed25519 ubuntu@{vnic.public_ip}"
-                    )
-                    print("=" * 60)
+            vnic_attachments = compute_client.list_vnic_attachments(
+                compartment_id=COMPARTMENT_ID,
+                instance_id=instance.id
+            ).data
 
-            except Exception as e:
-                print(f"WARNING: Could not retrieve public IP: {e}")
+            if not vnic_attachments:
 
-            exit(0)
+                print("No VNIC attachment found.")
+                exit(0)
+
+            vnic_id = vnic_attachments[0].vnic_id
+
+            vnic = network_client.get_vnic(
+                vnic_id
+            ).data
+
+            print()
+            print("=" * 60)
+            print("INSTANCE READY")
+            print("=" * 60)
+
+            print(f"Instance OCID: {instance.id}")
+            print(f"Private IP:    {vnic.private_ip}")
+            print(f"Public IP:     {vnic.public_ip}")
+
+            print()
+            print("SSH command:")
+            print(
+                f"ssh -i ~/.ssh/id_ed25519 "
+                f"ubuntu@{vnic.public_ip}"
+            )
+
+            print("=" * 60)
+
+        except Exception as e:
+
+            print(
+                f"WARNING: Could not retrieve public IP: {e}"
+            )
+
+        exit(0)
+
+
+    # ========================================================
+    # OCI SERVICE ERROR
+    # ========================================================
 
     except oci.exceptions.ServiceError as e:
 
         error_text = str(e).lower()
 
+        print()
+        print("OCI API ERROR")
+        print(f"Status: {e.status}")
+        print(f"Code: {e.code}")
+        print(f"Message: {e.message}")
+
         # ----------------------------------------------------
-        # Capacity errors
+        # Capacity error
         # ----------------------------------------------------
 
         if (
             "out of host capacity" in error_text
             or "out of capacity" in error_text
         ):
+
+            print()
             print(
-                "-> Out of host capacity in this availability domain."
+                f"No capacity available in {current_ad}."
             )
 
-            if i < TOTAL_ATTEMPTS:
+            if attempt < TOTAL_ATTEMPTS:
+
                 print(
-                    f"-> Retrying in {RETRY_DELAY} seconds..."
+                    f"Waiting {RETRY_DELAY} seconds "
+                    "before next attempt..."
                 )
+
                 time.sleep(RETRY_DELAY)
 
+                continue
+
         # ----------------------------------------------------
-        # Other OCI errors
+        # Any other OCI error
         # ----------------------------------------------------
 
-        else:
-            print()
-            print("OCI API ERROR")
-            print(f"Status: {e.status}")
-            print(f"Code: {e.code}")
-            print(f"Message: {e.message}")
+        print()
+        print("This is not being treated as a capacity error.")
+        print("Stopping to avoid repeated invalid requests.")
 
-            # Don't blindly retry arbitrary API errors.
-            exit(1)
+        exit(1)
+
+
+    # ========================================================
+    # UNEXPECTED ERROR
+    # ========================================================
 
     except Exception as e:
 
         print()
-        print(f"Unexpected error: {e}")
+        print("UNEXPECTED ERROR")
+        print(type(e).__name__)
+        print(e)
+
         exit(1)
 
 
 # ============================================================
-# ALL ATTEMPTS EXHAUSTED
+# ALL ATTEMPTS FAILED
 # ============================================================
 
 print()
@@ -342,8 +445,7 @@ print("=" * 60)
 print("PROVISIONING FAILED")
 print("=" * 60)
 print(
-    f"All {TOTAL_ATTEMPTS} attempts were exhausted "
-    "without successfully creating the instance."
+    f"All {TOTAL_ATTEMPTS} attempts were exhausted."
 )
 print("=" * 60)
 
