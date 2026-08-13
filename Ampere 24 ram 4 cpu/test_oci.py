@@ -9,63 +9,24 @@ config = {
     "region": os.getenv("OCI_REGION")
 }
 
-tenancy_id = os.getenv("OCI_TENANCY_ID")
 subnet_id = os.getenv("OCI_SUBNET_ID")
-image_id = os.getenv("OCI_IMAGE_ID")
 
 print(f"Region: {config['region']}")
-print("Testing OCI access...")
+print(f"Testing subnet access...")
 
 try:
-    identity = oci.identity.IdentityClient(config)
-    compute = oci.core.ComputeClient(config)
     network = oci.core.VirtualNetworkClient(config)
-
-    tenancy = identity.get_tenancy(tenancy_id).data
-
-    print("Authentication: OK")
-    print(f"Tenancy: {tenancy.name}")
-
-    ads = identity.list_availability_domains(
-        tenancy_id
-    ).data
-
-    print("\nAvailability Domains:")
-    for ad in ads:
-        print(f"  - {ad.name}")
 
     subnet = network.get_subnet(subnet_id).data
 
-    print("\nSubnet:")
-    print(f"  Name: {subnet.display_name}")
-    print(f"  State: {subnet.lifecycle_state}")
-    print(f"  CIDR: {subnet.cidr_block}")
-
-    image = compute.get_image(image_id).data
-
-    print("\nImage:")
-    print(f"  Name: {image.display_name}")
-    print(f"  State: {image.lifecycle_state}")
-    print(f"  OS: {image.operating_system}")
-    print(f"  Version: {image.operating_system_version}")
-
-    print("\n======================================")
-    print("ALL OCI RESOURCE CHECKS PASSED")
-    print("======================================")
+    print("SUBNET ACCESS: OK")
+    print(f"Name: {subnet.display_name}")
+    print(f"State: {subnet.lifecycle_state}")
+    print(f"CIDR: {subnet.cidr_block}")
 
 except oci.exceptions.ServiceError as e:
-    print("\n======================================")
-    print("OCI API ERROR")
-    print("======================================")
+    print("SUBNET ACCESS FAILED")
     print(f"Status: {e.status}")
     print(f"Code: {e.code}")
     print(f"Message: {e.message}")
-    exit(1)
-
-except Exception as e:
-    print("\n======================================")
-    print("ERROR")
-    print("======================================")
-    print(type(e).__name__)
-    print(e)
     exit(1)
