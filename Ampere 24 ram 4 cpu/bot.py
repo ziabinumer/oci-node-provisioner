@@ -70,7 +70,7 @@ INSTANCE_NAME = "FX-Backend-Server"
 SHAPE = "VM.Standard.A1.Flex"
 OCPUS = 1
 MEMORY_GB = 6
-BOOT_VOLUME_GB = 100
+BOOT_VOLUME_GB = 50
 
 # How long to wait after all 3 ADs fail
 RETRY_DELAY = 60
