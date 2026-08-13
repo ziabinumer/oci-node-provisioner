@@ -28,4 +28,5 @@ jobs:
           OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
           OCI_PUBLIC_SSH_KEY: ${{ secrets.OCI_PUBLIC_SSH_KEY }}
+          OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
         run: python "Ampere 24 ram 4 cpu/bot.py"
