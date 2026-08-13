@@ -1,8 +1,6 @@
 name: Continuous OCI Python SDK Provisioner Loop
 on:
-  schedule:
-    - cron: '*/5 * * * *'  # Runs every 5 minutes automatically
-  workflow_dispatch:       # Allows manual execution triggers
+  workflow_dispatch:
 
 jobs:
   attempt-build:
