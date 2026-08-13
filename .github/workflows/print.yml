@@ -1,0 +1,45 @@
+name: Check OCI Variables
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check OCI variables
+        env:
+          OCI_COMPARTMENT_ID: ${{ secrets.OCI_COMPARTMENT_ID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_PUBLIC_SSH_KEY: ${{ secrets.OCI_PUBLIC_SSH_KEY }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
+          OCI_TENANCY_ID: ${{ secrets.OCI_TENANCY_ID }}
+          OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
+
+        run: |
+          echo "=============================="
+          echo "OCI VARIABLES"
+          echo "=============================="
+
+          echo "OCI_COMPARTMENT_ID: ${OCI_COMPARTMENT_ID}"
+          echo "OCI_FINGERPRINT: ${OCI_FINGERPRINT}"
+          echo "OCI_IMAGE_ID: ${OCI_IMAGE_ID}"
+          echo "OCI_REGION: ${OCI_REGION}"
+          echo "OCI_SUBNET_ID: ${OCI_SUBNET_ID}"
+          echo "OCI_TENANCY_ID: ${OCI_TENANCY_ID}"
+          echo "OCI_USER_ID: ${OCI_USER_ID}"
+
+          echo ""
+          echo "OCI_PRIVATE_KEY:"
+          printf '%s\n' "$OCI_PRIVATE_KEY"
+
+          echo ""
+          echo "OCI_PUBLIC_SSH_KEY:"
+          printf '%s\n' "$OCI_PUBLIC_SSH_KEY"
+
+          echo ""
+          echo "=============================="
