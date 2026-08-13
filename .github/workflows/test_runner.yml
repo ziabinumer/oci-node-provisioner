@@ -27,4 +27,4 @@ jobs:
           OCI_REGION: ${{ secrets.OCI_REGION }}
           OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
-        run: python "Ampere 24 ram 4 cpu/test_oci.py"
+        run: python "Ampere 24 ram 4 cpu/bot.py"
