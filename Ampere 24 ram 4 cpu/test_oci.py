@@ -9,23 +9,24 @@ config = {
     "region": os.getenv("OCI_REGION")
 }
 
-subnet_id = os.getenv("OCI_SUBNET_ID")
+image_id = os.getenv("OCI_IMAGE_ID")
 
 print(f"Region: {config['region']}")
-print(f"Testing subnet access...")
+print("Testing image access...")
 
 try:
-    network = oci.core.VirtualNetworkClient(config)
+    compute = oci.core.ComputeClient(config)
 
-    subnet = network.get_subnet(subnet_id).data
+    image = compute.get_image(image_id).data
 
-    print("SUBNET ACCESS: OK")
-    print(f"Name: {subnet.display_name}")
-    print(f"State: {subnet.lifecycle_state}")
-    print(f"CIDR: {subnet.cidr_block}")
+    print("IMAGE ACCESS: OK")
+    print(f"Name: {image.display_name}")
+    print(f"State: {image.lifecycle_state}")
+    print(f"OS: {image.operating_system}")
+    print(f"Version: {image.operating_system_version}")
 
 except oci.exceptions.ServiceError as e:
-    print("SUBNET ACCESS FAILED")
+    print("IMAGE ACCESS FAILED")
     print(f"Status: {e.status}")
     print(f"Code: {e.code}")
     print(f"Message: {e.message}")
