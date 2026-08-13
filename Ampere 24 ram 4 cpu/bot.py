@@ -93,7 +93,7 @@ try:
     print("Discovering availability domains...")
 
     ads_response = identity_client.list_availability_domains(
-        tenancy_id=COMPARTMENT_ID
+        compartment_id=COMPARTMENT_ID
     )
 
     ads = [ad.name for ad in ads_response.data]
