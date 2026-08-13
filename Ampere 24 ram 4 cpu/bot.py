@@ -22,9 +22,9 @@ required_vars = [
     "OCI_PRIVATE_KEY",
     "OCI_FINGERPRINT",
     "OCI_TENANCY_ID",
+    "OCI_COMPARTMENT_ID",
     "OCI_REGION",
     "OCI_SUBNET_ID",
-    "OCI_IMAGE_ID",
     "OCI_PUBLIC_SSH_KEY"
 ]
 
@@ -41,9 +41,9 @@ if missing:
 # INSTANCE SETTINGS
 # ============================================================
 
-COMPARTMENT_ID = os.getenv("OCI_TENANCY_ID")
+TENANCY_ID = os.getenv("OCI_TENANCY_ID")
+COMPARTMENT_ID = os.getenv("OCI_COMPARTMENT_ID")
 SUBNET_ID = os.getenv("OCI_SUBNET_ID")
-IMAGE_ID = os.getenv("OCI_IMAGE_ID")
 PUBLIC_SSH_KEY = os.getenv("OCI_PUBLIC_SSH_KEY").strip()
 
 INSTANCE_NAME = "FX-Backend-Server"
@@ -93,7 +93,7 @@ try:
     print("Discovering availability domains...")
 
     ads_response = identity_client.list_availability_domains(
-        compartment_id=COMPARTMENT_ID
+        compartment_id=TENANCY_ID
     )
 
     ads = [ad.name for ad in ads_response.data]
@@ -126,7 +126,8 @@ try:
     print(f"  CIDR: {subnet.cidr_block}")
 
     if subnet.lifecycle_state != "AVAILABLE":
-        print("WARNING: Subnet is not AVAILABLE.")
+        print("CRITICAL ERROR: Subnet is not AVAILABLE.")
+        exit(1)
 
 except oci.exceptions.ServiceError as e:
     print("CRITICAL ERROR: Cannot access subnet.")
@@ -137,29 +138,85 @@ except oci.exceptions.ServiceError as e:
 
 
 # ============================================================
-# VERIFY IMAGE
+# FIND ARM64 UBUNTU 24.04 IMAGE
 # ============================================================
 
-try:
-    image = compute_client.get_image(IMAGE_ID).data
+def find_ubuntu_arm_image():
 
     print()
-    print("Image:")
-    print(f"  Name: {image.display_name}")
-    print(f"  State: {image.lifecycle_state}")
-    print(f"  OS: {image.operating_system}")
-    print(f"  Version: {image.operating_system_version}")
+    print("Searching for Ubuntu 24.04 ARM64 image...")
+    print(f"Shape compatibility required: {SHAPE}")
 
-    if image.lifecycle_state != "AVAILABLE":
-        print("CRITICAL ERROR: Image is not AVAILABLE.")
+    try:
+
+        response = compute_client.list_images(
+            compartment_id=TENANCY_ID,
+            operating_system="Canonical Ubuntu",
+            operating_system_version="24.04",
+            shape=SHAPE,
+            sort_by="TIMECREATED",
+            sort_order="DESC"
+        )
+
+        images = response.data
+
+        if not images:
+            print()
+            print("No compatible Ubuntu 24.04 image found.")
+            print()
+            print("OCI did not return an image compatible with:")
+            print(f"  Shape: {SHAPE}")
+            print("  OS: Canonical Ubuntu")
+            print("  Version: 24.04")
+            exit(1)
+
+        print()
+        print(f"Found {len(images)} compatible image(s).")
+
+        for image in images:
+            print()
+            print(f"  Name:  {image.display_name}")
+            print(f"  State: {image.lifecycle_state}")
+            print(f"  OCID:  {image.id}")
+
+        # Pick newest AVAILABLE image
+        available_images = [
+            image
+            for image in images
+            if image.lifecycle_state == "AVAILABLE"
+        ]
+
+        if not available_images:
+            print("No AVAILABLE compatible image found.")
+            exit(1)
+
+        selected = available_images[0]
+
+        print()
+        print("=" * 60)
+        print("SELECTED IMAGE")
+        print("=" * 60)
+        print(f"Name:    {selected.display_name}")
+        print(f"OCID:    {selected.id}")
+        print(f"State:   {selected.lifecycle_state}")
+        print(f"OS:      {selected.operating_system}")
+        print(f"Version: {selected.operating_system_version}")
+        print("=" * 60)
+
+        return selected.id
+
+    except oci.exceptions.ServiceError as e:
+
+        print()
+        print("IMAGE SEARCH FAILED")
+        print(f"Status: {e.status}")
+        print(f"Code: {e.code}")
+        print(f"Message: {e.message}")
+
         exit(1)
 
-except oci.exceptions.ServiceError as e:
-    print("CRITICAL ERROR: Cannot access image.")
-    print(f"Status: {e.status}")
-    print(f"Code: {e.code}")
-    print(f"Message: {e.message}")
-    exit(1)
+
+IMAGE_ID = find_ubuntu_arm_image()
 
 
 # ============================================================
@@ -167,6 +224,7 @@ except oci.exceptions.ServiceError as e:
 # ============================================================
 
 try:
+
     print()
     print(f"Checking for existing instance '{INSTANCE_NAME}'...")
 
@@ -195,7 +253,6 @@ except oci.exceptions.ServiceError as e:
     print("WARNING: Could not check existing instances.")
     print(f"Status: {e.status}")
     print(f"Message: {e.message}")
-
     print("Continuing with provisioning...")
 
 
@@ -303,10 +360,7 @@ for attempt in range(1, TOTAL_ATTEMPTS + 1):
 
             if final_instance.lifecycle_state != "RUNNING":
 
-                print(
-                    "Instance did not reach RUNNING state."
-                )
-
+                print("Instance did not reach RUNNING state.")
                 exit(1)
 
         except Exception as e:
@@ -335,7 +389,6 @@ for attempt in range(1, TOTAL_ATTEMPTS + 1):
             ).data
 
             if not vnic_attachments:
-
                 print("No VNIC attachment found.")
                 exit(0)
 
@@ -386,10 +439,6 @@ for attempt in range(1, TOTAL_ATTEMPTS + 1):
         print(f"Code: {e.code}")
         print(f"Message: {e.message}")
 
-        # ----------------------------------------------------
-        # Capacity error
-        # ----------------------------------------------------
-
         if (
             "out of host capacity" in error_text
             or "out of capacity" in error_text
@@ -408,12 +457,7 @@ for attempt in range(1, TOTAL_ATTEMPTS + 1):
                 )
 
                 time.sleep(RETRY_DELAY)
-
                 continue
-
-        # ----------------------------------------------------
-        # Any other OCI error
-        # ----------------------------------------------------
 
         print()
         print("This is not being treated as a capacity error.")
@@ -421,10 +465,6 @@ for attempt in range(1, TOTAL_ATTEMPTS + 1):
 
         exit(1)
 
-
-    # ========================================================
-    # UNEXPECTED ERROR
-    # ========================================================
 
     except Exception as e:
 
