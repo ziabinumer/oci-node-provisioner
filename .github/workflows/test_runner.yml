@@ -1,9 +1,9 @@
-name: OCI Provisioner Resource Test
+name: OCI A1 Provisioner
 
 on: workflow_dispatch
 
 jobs:
-  test:
+  provision:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,7 +18,7 @@ jobs:
       - name: Install SDK Requirements
         run: pip install -r requirements.txt
 
-      - name: Test OCI Resources
+      - name: Provision OCI A1 Instance
         env:
           OCI_USER_ID: ${{ secrets.OCI_USER_ID }}
           OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
@@ -27,4 +27,5 @@ jobs:
           OCI_REGION: ${{ secrets.OCI_REGION }}
           OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
+          OCI_PUBLIC_SSH_KEY: ${{ secrets.OCI_PUBLIC_SSH_KEY }}
         run: python "Ampere 24 ram 4 cpu/bot.py"
